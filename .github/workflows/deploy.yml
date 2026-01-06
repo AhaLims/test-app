@@ -1,0 +1,32 @@
+name: 构建并部署到 K8s
+
+on:
+  push:
+    branches: [main]  # 只有 main 分支推送才触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 检出代码
+      - uses: actions/checkout@v4
+      
+      # 2. 构建 Docker 镜像
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ secrets.HARBOR_URL }}/my-app:${{ github.sha }} .
+      
+      # 3. 推送到镜像仓库
+      - name: Push to Harbor
+        run: |
+          echo ${{ secrets.HARBOR_PASSWORD }} | docker login ${{ secrets.HARBOR_URL }} -u ${{ secrets.HARBOR_USER }} --password-stdin
+          docker push ${{ secrets.HARBOR_URL }}/my-app:${{ github.sha }}
+      
+      # 4. 调用 K8s 平台 API 更新部署（这是核心步骤）
+      - name: Deploy to K8s
+        run: |
+          curl -X POST "http://localhost:8000/api/v1/deployments/default/my-app/image" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.K8S_API_TOKEN }}" \
+            -d '{"image": "${{ secrets.HARBOR_URL }}/my-app:${{ github.sha }}"}'
