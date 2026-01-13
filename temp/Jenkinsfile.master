@@ -1,0 +1,160 @@
+// Jenkinsfile for test_project - Master Node Version
+// 直接在 Jenkins Master 节点上运行，无需动态 Agent
+// 适合初学者快速上手
+
+pipeline {
+    // 使用 Jenkins Master 节点（内置节点）
+    agent {
+        label 'master'
+    }
+    
+    // 环境变量定义
+    environment {
+        // 阿里云 ACR 配置
+        ACR_REGISTRY = 'crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com'
+        ACR_NAMESPACE = 'linmoxin/linmoxin'
+        IMAGE_NAME = "${ACR_REGISTRY}/${ACR_NAMESPACE}"
+        
+        // 镜像标签：使用构建号
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        
+        // Git Commit SHA（短版本）
+        GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD || echo "unknown"').trim()
+    }
+    
+    stages {
+        // 阶段 1：代码检出
+        stage('代码检出') {
+            steps {
+                echo '========== 阶段 1: 检出代码 =========='
+                checkout scm
+                sh '''
+                    echo "分支: ${GIT_BRANCH}"
+                    echo "提交: ${GIT_COMMIT_SHORT}"
+                    echo "构建号: ${BUILD_NUMBER}"
+                '''
+            }
+        }
+        
+        // 阶段 2：环境检查
+        stage('环境检查') {
+            steps {
+                echo '========== 阶段 2: 检查 Docker 环境 =========='
+                sh '''
+                    echo "检查 Docker 是否可用..."
+                    docker --version
+                    docker info
+                    echo "✅ Docker 环境正常"
+                '''
+            }
+        }
+        
+        // 阶段 3：构建镜像
+        stage('构建镜像') {
+            steps {
+                echo '========== 阶段 3: 构建 Docker 镜像 =========='
+                sh '''
+                    cd test_project
+                    
+                    echo "开始构建镜像..."
+                    echo "镜像名称: ${IMAGE_NAME}"
+                    echo "镜像标签: ${IMAGE_TAG}, ${GIT_COMMIT_SHORT}, latest"
+                    
+                    # 构建镜像（同时打上多个标签）
+                    docker build \
+                        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                        -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
+                        -t ${IMAGE_NAME}:latest \
+                        .
+                    
+                    echo "✅ 镜像构建完成"
+                    docker images | grep linmoxin || true
+                '''
+            }
+        }
+        
+        // 阶段 4：镜像测试
+        stage('镜像测试') {
+            steps {
+                echo '========== 阶段 4: 测试镜像 =========='
+                sh '''
+                    echo "启动测试容器..."
+                    CID=$(docker run -d -p 8888:80 ${IMAGE_NAME}:${IMAGE_TAG})
+                    echo "容器 ID: $CID"
+                    
+                    # 等待容器启动
+                    sleep 5
+                    
+                    # 检查容器是否运行
+                    if docker ps | grep $CID; then
+                        echo "✅ 容器运行正常"
+                    else
+                        echo "❌ 容器启动失败"
+                        docker logs $CID
+                        exit 1
+                    fi
+                    
+                    # 清理测试容器
+                    docker stop $CID
+                    docker rm $CID
+                    echo "✅ 测试完成，容器已清理"
+                '''
+            }
+        }
+        
+        // 阶段 5：推送到 ACR
+        stage('推送到 ACR') {
+            steps {
+                echo '========== 阶段 5: 推送到阿里云 ACR =========='
+                // 使用 Jenkins 凭据
+                withCredentials([
+                    string(credentialsId: 'acr-username', variable: 'ACR_USERNAME'),
+                    string(credentialsId: 'acr-password', variable: 'ACR_PASSWORD')
+                ]) {
+                    sh '''
+                        echo "登录 ACR: ${ACR_REGISTRY}"
+                        echo "${ACR_PASSWORD}" | docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
+                        
+                        echo "推送镜像..."
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:${GIT_COMMIT_SHORT}
+                        docker push ${IMAGE_NAME}:latest
+                        
+                        echo "✅ 镜像推送完成"
+                        echo "镜像地址："
+                        echo "  ${IMAGE_NAME}:${IMAGE_TAG}"
+                        echo "  ${IMAGE_NAME}:${GIT_COMMIT_SHORT}"
+                        echo "  ${IMAGE_NAME}:latest"
+                    '''
+                }
+            }
+        }
+    }
+    
+    // 构建后操作
+    post {
+        success {
+            echo '=========================================='
+            echo '  ✅ 构建成功！'
+            echo '=========================================='
+            echo "构建号: ${env.BUILD_NUMBER}"
+            echo "Git SHA: ${GIT_COMMIT_SHORT}"
+            echo "镜像: ${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        
+        failure {
+            echo '=========================================='
+            echo '  ❌ 构建失败'
+            echo '=========================================='
+            echo "请检查日志排查问题"
+        }
+        
+        always {
+            echo '=========================================='
+            echo '  清理工作'
+            echo '=========================================='
+            // 清理未使用的镜像以节省空间
+            sh 'docker system prune -f || true'
+        }
+    }
+}

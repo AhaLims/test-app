@@ -14,16 +14,25 @@ jobs:
      # 步骤1：拉取仓库代码到运行任务的服务器
       - name: Checkout code
         uses: actions/checkout@v3
-      # 步骤2：登录 Docker Hub（使用 GitHub Secrets 中的账号信息）
-      - name: Login to Docker Hub
+      # # 步骤2：登录 Docker Hub（使用 GitHub Secrets 中的账号信息）
+      # - name: Login to Docker Hub
+      #   run: |
+      #     echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Login to Alibaba Cloud ACR
         run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login -u "${{ secrets.ACR_USERNAME }}" --password-stdin crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com
+
+
 
       # 步骤3：构建Docker镜像并推送到镜像仓库
+      # - name: Build and push image
+      #   run: |
+      #     docker build -t linmoxin/test-app:${{ github.ref_name }} .
+      #     docker push linmoxin/test-app:${{ github.ref_name }} 
       - name: Build and push image
         run: |
-          docker build -t linmoxin/test-app:${{ github.ref_name }} .
-          docker push linmoxin/test-app:${{ github.ref_name }} 
+          docker build -t crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com/linmoxin/linmoxin:test-app:${{ github.ref_name }} .
+          docker push crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com/linmoxin/linmoxin:test-app:${{ github.ref_name }}
 
       # # 步骤4：触发K8s滚动更新s
       # - name: Trigger K8s rolling update

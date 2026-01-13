@@ -1,0 +1,295 @@
+// Jenkinsfile for test_project
+// 实现自动化构建 Docker 镜像并推送到阿里云 ACR
+
+pipeline {
+    // 使用带有 Docker 能力的 Kubernetes Agent
+    agent {
+        kubernetes {
+            // 使用 yaml 定义 Pod 模板
+            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins: agent
+    app: docker-build
+spec:
+  containers:
+  # Jenkins Agent 主容器
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
+  
+  # Docker 构建容器 (Docker in Docker)
+  - name: docker
+    image: docker:dind
+    securityContext:
+      privileged: true  # 必须开启特权模式以运行 Docker 守护进程
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""  # 禁用 TLS 简化配置
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+    volumeMounts:
+    - name: workspace
+      mountPath: /home/jenkins/agent
+    - name: docker-storage
+      mountPath: /var/lib/docker
+  
+  # 卷定义
+  volumes:
+  - name: workspace
+    emptyDir: {}
+  - name: docker-storage
+    emptyDir: {}
+'''
+        }
+    }
+    
+    // 环境变量定义
+    environment {
+        // 阿里云 ACR 配置
+        ACR_REGISTRY = 'crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com'
+        ACR_NAMESPACE = 'linmoxin/linmoxin'
+        
+        // 镜像名称和标签
+        IMAGE_NAME = "${ACR_REGISTRY}/${ACR_NAMESPACE}"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"  // 使用构建号作为标签
+        
+        // Git Commit SHA（用于镜像追溯）
+        GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+    }
+    
+    // Pipeline 参数（可选配置）
+    parameters {
+        string(name: 'BRANCH', defaultValue: 'main', description: '构建的分支名称')
+        booleanParam(name: 'PUSH_TO_ACR', defaultValue: true, description: '是否推送镜像到 ACR')
+        booleanParam(name: 'DEPLOY_TO_K8S', defaultValue: false, description: '是否自动部署到 Kubernetes')
+    }
+    
+    // 流水线阶段
+    stages {
+        // 阶段 1：代码检出
+        stage('Checkout') {
+            steps {
+                echo '=========================================='
+                echo '  阶段 1: 检出代码'
+                echo '=========================================='
+                
+                // 拉取代码
+                checkout scm
+                
+                // 显示基本信息
+                sh '''
+                    echo "Git Branch: ${GIT_BRANCH}"
+                    echo "Git Commit: ${GIT_COMMIT_SHORT}"
+                    echo "Build Number: ${BUILD_NUMBER}"
+                '''
+            }
+        }
+        
+        // 阶段 2：环境准备
+        stage('Environment Setup') {
+            steps {
+                echo '=========================================='
+                echo '  阶段 2: 环境准备'
+                echo '=========================================='
+                
+                container('docker') {
+                    // 等待 Docker 守护进程就绪
+                    sh '''
+                        echo "等待 Docker 守护进程启动..."
+                        for i in {1..30}; do
+                            if docker info > /dev/null 2>&1; then
+                                echo "Docker 守护进程已就绪"
+                                docker version
+                                break
+                            fi
+                            echo "等待中... ($i/30)"
+                            sleep 2
+                        done
+                    '''
+                    
+                    // 验证 Docker 环境
+                    sh 'docker info'
+                }
+            }
+        }
+        
+        // 阶段 3：构建 Docker 镜像
+        stage('Build Image') {
+            steps {
+                echo '=========================================='
+                echo '  阶段 3: 构建 Docker 镜像'
+                echo '=========================================='
+                
+                container('docker') {
+                    // 切换到 test_project 目录并构建镜像
+                    sh '''
+                        cd test_project
+                        
+                        echo "开始构建镜像..."
+                        echo "镜像名称: ${IMAGE_NAME}"
+                        echo "镜像标签: ${IMAGE_TAG}"
+                        
+                        # 构建镜像并打上标签
+                        docker build \
+                            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+                            --build-arg GIT_COMMIT=${GIT_COMMIT_SHORT} \
+                            --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                            -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                            -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
+                            -t ${IMAGE_NAME}:latest \
+                            .
+                        
+                        echo "镜像构建完成！"
+                        docker images | grep linmoxin || true
+                    '''
+                }
+            }
+        }
+        
+        // 阶段 4：镜像测试（可选）
+        stage('Test Image') {
+            steps {
+                echo '=========================================='
+                echo '  阶段 4: 测试镜像'
+                echo '=========================================='
+                
+                container('docker') {
+                    sh '''
+                        echo "启动临时容器测试镜像..."
+                        
+                        # 启动容器（后台运行）
+                        CONTAINER_ID=$(docker run -d -p 8888:80 ${IMAGE_NAME}:${IMAGE_TAG})
+                        echo "容器 ID: $CONTAINER_ID"
+                        
+                        # 等待应用启动
+                        sleep 5
+                        
+                        # 检查容器状态
+                        docker ps | grep $CONTAINER_ID || {
+                            echo "容器启动失败"
+                            docker logs $CONTAINER_ID
+                            exit 1
+                        }
+                        
+                        # 简单的健康检查（如果应用支持）
+                        # curl -f http://localhost:8888/ || echo "健康检查跳过"
+                        
+                        echo "镜像测试通过！"
+                        
+                        # 清理测试容器
+                        docker stop $CONTAINER_ID
+                        docker rm $CONTAINER_ID
+                    '''
+                }
+            }
+        }
+        
+        // 阶段 5：推送到阿里云 ACR
+        stage('Push to ACR') {
+            when {
+                expression { params.PUSH_TO_ACR == true }
+            }
+            steps {
+                echo '=========================================='
+                echo '  阶段 5: 推送镜像到阿里云 ACR'
+                echo '=========================================='
+                
+                container('docker') {
+                    // 使用 Kubernetes Secret 中的凭据登录 ACR
+                    script {
+                        // 从环境变量或 Secret 读取凭据
+                        withCredentials([
+                            string(credentialsId: 'acr-username', variable: 'ACR_USERNAME'),
+                            string(credentialsId: 'acr-password', variable: 'ACR_PASSWORD')
+                        ]) {
+                            sh '''
+                                echo "登录阿里云 ACR..."
+                                echo ${ACR_PASSWORD} | docker login ${ACR_REGISTRY} -u ${ACR_USERNAME} --password-stdin
+                                
+                                echo "推送镜像..."
+                                docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                                docker push ${IMAGE_NAME}:${GIT_COMMIT_SHORT}
+                                docker push ${IMAGE_NAME}:latest
+                                
+                                echo "镜像推送完成！"
+                                echo "镜像地址："
+                                echo "  - ${IMAGE_NAME}:${IMAGE_TAG}"
+                                echo "  - ${IMAGE_NAME}:${GIT_COMMIT_SHORT}"
+                                echo "  - ${IMAGE_NAME}:latest"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 阶段 6：部署到 Kubernetes（可选）
+        stage('Deploy to Kubernetes') {
+            when {
+                expression { params.DEPLOY_TO_K8S == true }
+            }
+            steps {
+                echo '=========================================='
+                echo '  阶段 6: 部署到 Kubernetes'
+                echo '=========================================='
+                
+                sh '''
+                    echo "更新 Deployment 镜像版本..."
+                    # kubectl set image deployment/test-app test-app=${IMAGE_NAME}:${IMAGE_TAG} -n default
+                    echo "部署功能待实现"
+                '''
+            }
+        }
+    }
+    
+    // 构建后操作
+    post {
+        // 构建成功
+        success {
+            echo '=========================================='
+            echo '  ✅ 构建成功！'
+            echo '=========================================='
+            echo "构建号: ${env.BUILD_NUMBER}"
+            echo "Git Commit: ${GIT_COMMIT_SHORT}"
+            echo "镜像标签: ${IMAGE_TAG}"
+            echo "镜像地址: ${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        
+        // 构建失败
+        failure {
+            echo '=========================================='
+            echo '  ❌ 构建失败！'
+            echo '=========================================='
+            echo "请检查构建日志以获取详细错误信息"
+        }
+        
+        // 总是执行的清理操作
+        always {
+            echo '=========================================='
+            echo '  清理工作'
+            echo '=========================================='
+            
+            container('docker') {
+                // 清理未使用的镜像以节省空间（可选）
+                sh 'docker system prune -f || true'
+            }
+        }
+    }
+}
