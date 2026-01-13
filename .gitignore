@@ -37,6 +37,6 @@ env/
 .DS_Store
 Thumbs.db
 
-# Temp directory
-temp/*
+# Temp directory - 忽略整个目录
+temp/
 !temp/.gitkeep
