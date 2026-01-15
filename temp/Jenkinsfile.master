@@ -82,19 +82,19 @@ pipeline {
                     echo "启动测试容器..."
                     CID=$(/shared/docker run -d -p 8888:80 ${IMAGE_NAME}:${IMAGE_TAG})
                     echo "容器 ID: $CID"
-                    
+
                     # 等待容器启动
                     sleep 5
-                    
+
                     # 检查容器是否运行
-                    if /shared/docker ps | grep $CID; then
+                    if /shared/docker inspect --format='{{.State.Running}}' $CID 2>/dev/null | grep -q "true"; then
                         echo "✅ 容器运行正常"
                     else
                         echo "❌ 容器启动失败"
-                        /shared/docker logs $CID
+                        /shared/docker logs $CID || true
                         exit 1
                     fi
-                    
+
                     # 清理测试容器
                     /shared/docker stop $CID
                     /shared/docker rm $CID
