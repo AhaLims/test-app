@@ -113,6 +113,7 @@ pipeline {
                     string(credentialsId: 'acr-password', variable: 'ACR_PASSWORD')
                 ]) {
                     sh '''
+                        set -x
                         echo "登录 ACR: ${ACR_REGISTRY}"
                         echo "${ACR_PASSWORD}" | /shared/docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
                         
