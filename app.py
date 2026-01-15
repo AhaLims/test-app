@@ -3,11 +3,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def hello():
-    return "Hello DevOps! 自动部署测试"
-
-
-# git config --global http.proxy socks5://127.0.0.1:7897
-# git config --global https.proxy socks5://127.0.0.1:7897
+    return "Hello DevOps! 我更新了！"
 
 
 
