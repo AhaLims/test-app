@@ -3,11 +3,12 @@
 // 适合初学者快速上手
 
 pipeline {
-    // 使用 Jenkins Master 节点（内置节点）
-    agent {
-        label 'master'
-    }
-    
+    // 直接在 Master 节点上运行
+    agent any
+    //     // 使用 Jenkins Master 节点（内置节点）
+    // agent {
+    //     label 'master'
+    // }
     // 环境变量定义
     environment {
         // 阿里云 ACR 配置
@@ -42,8 +43,8 @@ pipeline {
                 echo '========== 阶段 2: 检查 Docker 环境 =========='
                 sh '''
                     echo "检查 Docker 是否可用..."
-                    docker --version
-                    docker info
+                    /shared/docker --version
+                    /shared/docker info
                     echo "✅ Docker 环境正常"
                 '''
             }
@@ -61,14 +62,14 @@ pipeline {
                     echo "镜像标签: ${IMAGE_TAG}, ${GIT_COMMIT_SHORT}, latest"
                     
                     # 构建镜像（同时打上多个标签）
-                    docker build \
+                    /shared/docker build \
                         -t ${IMAGE_NAME}:${IMAGE_TAG} \
                         -t ${IMAGE_NAME}:${GIT_COMMIT_SHORT} \
                         -t ${IMAGE_NAME}:latest \
                         .
                     
                     echo "✅ 镜像构建完成"
-                    docker images | grep linmoxin || true
+                    /shared/docker images | grep linmoxin || true
                 '''
             }
         }
@@ -79,24 +80,24 @@ pipeline {
                 echo '========== 阶段 4: 测试镜像 =========='
                 sh '''
                     echo "启动测试容器..."
-                    CID=$(docker run -d -p 8888:80 ${IMAGE_NAME}:${IMAGE_TAG})
+                    CID=$(/shared/docker run -d -p 8888:80 ${IMAGE_NAME}:${IMAGE_TAG})
                     echo "容器 ID: $CID"
                     
                     # 等待容器启动
                     sleep 5
                     
                     # 检查容器是否运行
-                    if docker ps | grep $CID; then
+                    if /shared/docker ps | grep $CID; then
                         echo "✅ 容器运行正常"
                     else
                         echo "❌ 容器启动失败"
-                        docker logs $CID
+                        /shared/docker logs $CID
                         exit 1
                     fi
                     
                     # 清理测试容器
-                    docker stop $CID
-                    docker rm $CID
+                    /shared/docker stop $CID
+                    /shared/docker rm $CID
                     echo "✅ 测试完成，容器已清理"
                 '''
             }
@@ -113,12 +114,12 @@ pipeline {
                 ]) {
                     sh '''
                         echo "登录 ACR: ${ACR_REGISTRY}"
-                        echo "${ACR_PASSWORD}" | docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
+                        echo "${ACR_PASSWORD}" | /shared/docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
                         
                         echo "推送镜像..."
-                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                        docker push ${IMAGE_NAME}:${GIT_COMMIT_SHORT}
-                        docker push ${IMAGE_NAME}:latest
+                        /shared/docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        /shared/docker push ${IMAGE_NAME}:${GIT_COMMIT_SHORT}
+                        /shared/docker push ${IMAGE_NAME}:latest
                         
                         echo "✅ 镜像推送完成"
                         echo "镜像地址："
@@ -154,7 +155,7 @@ pipeline {
             echo '  清理工作'
             echo '=========================================='
             // 清理未使用的镜像以节省空间
-            sh 'docker system prune -f || true'
+            sh '/shared/docker system prune -f || true'
         }
     }
 }
