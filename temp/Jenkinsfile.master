@@ -55,7 +55,7 @@ pipeline {
             steps {
                 echo '========== 阶段 3: 构建 Docker 镜像 =========='
                 sh '''
-                    cd test_project
+
                     
                     echo "开始构建镜像..."
                     echo "镜像名称: ${IMAGE_NAME}"
