@@ -22,7 +22,7 @@ jobs:
       #   run: |
       #     echo "${{ secrets.ACR_PASSWORD }}" | docker login -u "${{ secrets.ACR_USERNAME }}" --password-stdin crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com
 
-      步骤3：本地构建 Docker 镜像（不推送到远程仓库）
+      # 步骤3：本地构建 Docker 镜像（不推送到远程仓库）
       - name: Build image
         run: |
           docker build -t test-app:latest .
