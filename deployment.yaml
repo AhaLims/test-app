@@ -11,7 +11,7 @@ kind: Deployment
 metadata:
   name: test-project
   namespace: test-project
-  labels:
+  labels: # 这个应用的标签 app=test-project,，创建之后 pod会带上这个标签
     app: test-project
 spec:
   replicas: 1
@@ -60,30 +60,36 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 80
-      targetPort: 80
+    - port: 80 # Cluster IP的端口
+      targetPort: 80 # Pod IP的端口
       protocol: TCP
-      name: http
+      name: http #给80端口起名为 http，下面的 SerivceMonitor可以直接用名字引用
   selector:
-    app: test-project
+    app: test-project # 找带这个标签的 Pod    
 ---
-
+# 他的作用是找到 Service
 # 这块主要是增加了Promxx的监控
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: test-project
   namespace: monitoring
+  # 给资源打标签
   labels:
     release: prometheus  # 与 kube-prometheus-stack 的 release 名一致
 spec:
+# 选择器：根据标签筛选资源
   selector:
     matchLabels:
-      app: test-project
-  namespaceSelector:
+      app: test-project #找带这个标签的 Service   
+  # namespace选择器
+  namespaceSelector: # 范围是 test-project命名空间
     matchNames:
       - test-project
   endpoints:
-    - port: http
+  # 进程内埋点
+    - port: http #用 Service 的 http 端口    
       path: /metrics
       interval: 15s
+
+#Prometheus        ：定期访问: http://test-project:80/metrics        

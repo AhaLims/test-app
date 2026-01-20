@@ -1,5 +1,5 @@
 # 工作流名称
-name: Deploy to K8s
+name: build image onlyyyyyyyy
 
 # 触发器：定义什么时候执行这个工作流
 on:
@@ -18,15 +18,15 @@ jobs:
       # - name: Login to Docker Hub
       #   run: |
       #     echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-      - name: Login to Alibaba Cloud ACR
-        run: |
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login -u "${{ secrets.ACR_USERNAME }}" --password-stdin crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com
+      # - name: Login to Alibaba Cloud ACR
+      #   run: |
+      #     echo "${{ secrets.ACR_PASSWORD }}" | docker login -u "${{ secrets.ACR_USERNAME }}" --password-stdin crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com
 
-      # 步骤3：构建Docker镜像并推送到镜像仓库
-      - name: Build and push image
+      步骤3：本地构建 Docker 镜像（不推送到远程仓库）
+      - name: Build image
         run: |
-          docker build -t crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com/linmoxin/test-app:${{ github.ref_name }} .
-          docker push crpi-ligqgn7j175l602u.cn-guangzhou.personal.cr.aliyuncs.com/linmoxin/test-app:${{ github.ref_name }}
+          docker build -t test-app:latest .
+
 
       # # 步骤4：触发K8s滚动更新s
       # - name: Trigger K8s rolling update
